@@ -109,8 +109,7 @@ switch ($inputVersion) {
 
 // Finally validate the version
 if (!in_array($inputVersion, $versions['available'], true)) {
-    echo "Unknown version '{$inputVersion}'\n";
-    echo "Available Versions: \n  " . implode(' ', $versions['available']) . "\n";
+    $climate->error("Unknown version '{$inputVersion}'");
     exit;
 }
 
@@ -127,7 +126,7 @@ foreach ($versions['running'] as $version) {
     exec('brew services stop ' . $version);
 }
 
-// Start the
+// Start the proper PHP version
 if ($force || !in_array($inputVersion, $versions['running'])) {
     $climate->out("<whisper>-></whisper> Starting <bold>{$inputVersion}</bold>");
     exec('brew services start ' . $inputVersion);
