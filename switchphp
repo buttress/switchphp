@@ -1,0 +1,130 @@
+#!/usr/bin/env php
+<?php
+require_once __DIR__ . '/vendor/autoload.php';
+
+$climate = new \League\CLImate\CLImate();
+$climate->arguments->add([
+    'version' => [
+        'description' => 'The version to restart (php71, 71, 7.1, latest, oldest, guess)',
+        'defaultValue' => 'guess'
+    ],
+    'force' => [
+        'prefix' => 'f',
+        'longPrefix' => 'force',
+        'description' => 'Force the PHP version to restart',
+        'noValue' => true
+    ],
+    'help' => [
+        'prefix' => 'h',
+        'longPrefix' => 'help',
+        'description' => 'Prints this "help" statement',
+        'noValue' => true,
+    ]
+]);
+
+$climate->arguments->parse();
+$climate->description('SwitchPHP PHP Version Manager');
+
+// Get the user provided version
+$inputVersion = strtolower($climate->arguments->get('version'));
+
+if ($climate->arguments->get('help') || $inputVersion === 'help') {
+    $climate->usage();
+    exit;
+}
+
+$climate->boldUnderline('Finding PHP Versions');
+
+// Get a list of all services
+exec('brew services list | fgrep php', $versionList);
+
+// Prepare version list
+$versions = [
+    'available' => [],
+    'running' => []
+];
+
+// Catalog PHP versions
+foreach ($versionList as $version) {
+    // Split version and status ex: `php53           stopped`
+    list($version, $status) = preg_split('/\s+/', $version, 2);
+    $versions['available'][] = $version;
+
+    // Stop running services, should only ever be one
+    if ($status !== 'stopped') {
+        $versions['running'][] = $version;
+    }
+}
+
+sort($versions['available']);
+$latest = end($versions['available']);
+$earliest = reset($versions['available']);
+
+// Output the available versions
+$padding = $climate->padding(10)->char(' ');
+foreach ($versions['available'] as $version) {
+    $padding->label($version)->result(in_array($version, $versions['running']) ? '<green>Running</green>' : 'stopped');
+}
+
+$climate->br();
+
+// Normalize PHP Versions
+$inputVersion = preg_replace('/^(?:php)?(\d)\.?(\d)?$/', 'php$1$2', $inputVersion);
+$inputVersion = str_pad($inputVersion, 5, '0');
+
+// Handle special strings
+switch ($inputVersion) {
+    case 'lowest':
+    case 'oldest':
+    case 'earliest';
+        $inputVersion = $earliest;
+        break;
+    case 'highest':
+    case 'latest':
+    case 'youngest':
+        $inputVersion = $latest;
+        break;
+
+    case 'guess':
+        // Map types to php versions
+        $typeMap = [
+            'php7' => 'php56',
+            'php5' => $latest
+        ];
+
+        // Determine which version to start
+        if ($inputVersion === 'guess') {
+            $running = substr(reset($versions['running']), 0, 4);
+            $inputVersion = isset($typeMap[$running]) ? $typeMap[$running] : $latest;
+        }
+        break;
+}
+
+// Finally validate the version
+if (!in_array($inputVersion, $versions['available'], true)) {
+    echo "Unknown version '{$inputVersion}'\n";
+    echo "Available Versions: \n  " . implode(' ', $versions['available']) . "\n";
+    exit;
+}
+
+$force = $climate->arguments->get('force');
+$formattedVersion = preg_replace('/^php(\d)(\d)$/', 'PHP $1.$2', $inputVersion);
+$climate->boldUnderline("Switching to {$formattedVersion}" . ($force ? ' (Forced)' : ''));
+
+// Stop all running versions
+foreach ($versions['running'] as $version) {
+    if (!$force && $version === $inputVersion) {
+        continue;
+    }
+    $climate->out("<whisper>-></whisper> Stopping <bold>{$version}</bold>");
+    exec('brew services stop ' . $version);
+}
+
+// Start the
+if ($force || !in_array($inputVersion, $versions['running'])) {
+    $climate->out("<whisper>-></whisper> Starting <bold>{$inputVersion}</bold>");
+    exec('brew services start ' . $inputVersion);
+    $climate->success('Complete!');
+} else {
+    $climate->error("{$inputVersion} is already running.");
+}
